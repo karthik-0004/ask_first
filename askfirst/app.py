@@ -4,6 +4,7 @@ load_dotenv()
 import json
 import os
 import time
+from html import escape
 
 import streamlit as st
 
@@ -24,12 +25,183 @@ st.set_page_config(
 	layout="wide",
 )
 
-st.header("🩺 Clary - Health Pattern Detector")
-st.subheader("Cross-conversation temporal reasoning for hidden health patterns")
-st.divider()
+st.markdown(
+	"""
+<style>
+/* Sidebar styling */
+[data-testid="stSidebar"] {
+	background: linear-gradient(180deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+}
+[data-testid="stSidebar"] * {
+	color: white !important;
+}
+[data-testid="stSidebar"] .stSelectbox label,
+[data-testid="stSidebar"] .stTextInput label,
+[data-testid="stSidebar"] .stNumberInput label {
+	color: #a78bfa !important;
+	font-size: 0.8rem !important;
+	font-weight: 600 !important;
+	letter-spacing: 0.05em !important;
+	text-transform: uppercase !important;
+}
 
-st.sidebar.title("🩺 AskFirst Clary")
-st.sidebar.caption("Health Pattern Detection")
+/* Sidebar field readability */
+[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] * {
+	color: #111827 !important;
+}
+[data-testid="stSidebar"] .stTextInput input,
+[data-testid="stSidebar"] .stNumberInput input {
+	color: #111827 !important;
+	-caret-color: #111827 !important;
+}
+[data-testid="stSidebar"] .stTextInput input::placeholder,
+[data-testid="stSidebar"] .stNumberInput input::placeholder {
+	color: #6b7280 !important;
+	opacity: 1 !important;
+}
+
+/* Main header */
+.main-header {
+	background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+	padding: 2rem 2.5rem;
+	border-radius: 16px;
+	margin-bottom: 1.5rem;
+	color: white;
+}
+.main-header h1 {
+	font-size: 2.2rem;
+	font-weight: 800;
+	margin: 0;
+	letter-spacing: -0.02em;
+}
+.main-header p {
+	margin: 0.5rem 0 0 0;
+	opacity: 0.85;
+	font-size: 1rem;
+}
+
+/* Pattern cards */
+.pattern-card {
+	background: white;
+	border-radius: 12px;
+	padding: 1.5rem;
+	margin-bottom: 1rem;
+	border-left: 4px solid #6c63ff;
+	box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+.pattern-card-high {
+	border-left-color: #10b981;
+}
+.pattern-card-medium {
+	border-left-color: #f59e0b;
+}
+.pattern-card-low {
+	border-left-color: #ef4444;
+}
+
+/* Confidence badge */
+.badge {
+	display: inline-block;
+	padding: 0.25rem 0.75rem;
+	border-radius: 999px;
+	font-size: 0.75rem;
+	font-weight: 700;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+}
+.badge-high { background: #d1fae5; color: #065f46; }
+.badge-very-high { background: #d1fae5; color: #065f46; }
+.badge-medium { background: #fef3c7; color: #92400e; }
+.badge-low { background: #fee2e2; color: #991b1b; }
+
+/* Stats row */
+.stat-box {
+	background: white;
+	border-radius: 12px;
+	padding: 1.2rem;
+	text-align: center;
+	box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+.stat-number {
+	font-size: 2rem;
+	font-weight: 800;
+	color: #6c63ff;
+}
+.stat-label {
+	font-size: 0.8rem;
+	color: #64748b;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+/* Evidence items */
+.evidence-item {
+	background: #f1f5f9;
+	border-radius: 8px;
+	padding: 0.6rem 1rem;
+	margin: 0.3rem 0;
+	font-size: 0.85rem;
+	color: #334155;
+	border-left: 3px solid #6c63ff;
+}
+
+/* Streaming box */
+.stream-box {
+	background: #0f172a;
+	color: #a78bfa;
+	border-radius: 12px;
+	padding: 1rem 1.5rem;
+	font-family: monospace;
+	font-size: 0.85rem;
+	min-height: 80px;
+	border: 1px solid #1e293b;
+}
+
+/* Run button */
+.stButton > button {
+	background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+	color: white !important;
+	border: none !important;
+	border-radius: 10px !important;
+	padding: 0.6rem 1.5rem !important;
+	font-weight: 600 !important;
+	width: 100% !important;
+	transition: opacity 0.2s !important;
+}
+.stButton > button:hover {
+	opacity: 0.9 !important;
+}
+
+/* Main area background */
+[data-testid="stAppViewContainer"] {
+	background: #f8fafc;
+}
+</style>
+""",
+	unsafe_allow_html=True,
+)
+
+st.markdown(
+	"""
+<div class="main-header">
+	<h1>🩺 Clary — Health Pattern Detector</h1>
+	<p>Cross-conversation temporal reasoning · Powered by GPT-4o</p>
+</div>
+""",
+	unsafe_allow_html=True,
+)
+
+st.sidebar.markdown(
+	"""
+<div style="text-align:center; padding:1rem 0 1.5rem 0;">
+	<div style="font-size:2.5rem;">🩺</div>
+	<div style="font-size:1.1rem; font-weight:700; color:white;">AskFirst Clary</div>
+	<div style="font-size:0.75rem; color:#a78bfa; margin-top:0.2rem;">Health Pattern Detection</div>
+	<hr style="border-color:#4c3f8a; margin-top:1rem;">
+</div>
+""",
+	unsafe_allow_html=True,
+)
 
 # Read key silently from environment
 env_key = os.getenv("OPENAI_API_KEY", "")
@@ -143,10 +315,10 @@ if run_button:
 							if item_type == "chunk":
 								chunk_text = item.get("content", "")
 								stream_buffer += chunk_text
-								stream_placeholder.text_area(
-									"Streaming Output",
-									value=stream_buffer,
-									height=260,
+								accumulated_text = escape(stream_buffer).replace("\n", "<br>")
+								stream_placeholder.markdown(
+									f'<div class="stream-box">🤖 Clary is reasoning...<br>{accumulated_text}</div>',
+									unsafe_allow_html=True,
 								)
 								time.sleep(0.01)
 							elif item_type == "result":
@@ -173,16 +345,16 @@ if run_button:
 							if item_type == "chunk":
 								chunk_text = item.get("content", "")
 								stream_buffer += chunk_text
-								stream_placeholder.text_area(
-									"Streaming Output",
-									value=stream_buffer,
-									height=260,
+								accumulated_text = escape(stream_buffer).replace("\n", "<br>")
+								stream_placeholder.markdown(
+									f'<div class="stream-box">🤖 Clary is reasoning...<br>{accumulated_text}</div>',
+									unsafe_allow_html=True,
 								)
 								time.sleep(0.01)
 							elif item_type == "result":
 								all_collected_patterns.extend(item.get("patterns", []))
 							elif item_type == "user_separator":
-								st.subheader(f"👤 {item.get('user_name', 'Unknown')}")
+								st.markdown(f"### 👤 {item.get('user_name', 'Unknown')}")
 					else:
 						all_collected_patterns = detect_patterns_all_users(
 							dataset,
@@ -225,65 +397,107 @@ if run_button:
 					f"✅ Analysis complete. Found {len(final_report.get('patterns', []))} patterns."
 				)
 
-				for pattern in final_report.get("patterns", []):
-					confidence = pattern.get("confidence", {})
-					confidence_level = str(confidence.get("level", "")).lower()
-					confidence_score = confidence.get("score", 0)
+				display_patterns = final_report.get("patterns", [])
+				highest_confidence = "N/A"
+				if display_patterns:
+					highest_confidence = str(
+						display_patterns[0].get("confidence", {}).get("level", "N/A")
+					).upper()
 
-					expander_title = (
-						f"{pattern.get('title', 'Untitled Pattern')} — "
-						f"{str(confidence.get('level', '')).upper()} confidence "
-						f"({confidence_score})"
+				stat_col1, stat_col2, stat_col3 = st.columns(3)
+				with stat_col1:
+					st.markdown(
+						f"""
+<div class="stat-box">
+	<div class="stat-number">{len(display_patterns)}</div>
+	<div class="stat-label">Total Patterns Found</div>
+</div>
+""",
+						unsafe_allow_html=True,
+					)
+				with stat_col2:
+					st.markdown(
+						f"""
+<div class="stat-box">
+	<div class="stat-number">{len(analyzed_user_names)}</div>
+	<div class="stat-label">Users Analyzed</div>
+</div>
+""",
+						unsafe_allow_html=True,
+					)
+				with stat_col3:
+					st.markdown(
+						f"""
+<div class="stat-box">
+	<div class="stat-number">{escape(highest_confidence)}</div>
+	<div class="stat-label">Highest Confidence</div>
+</div>
+""",
+						unsafe_allow_html=True,
 					)
 
-					with st.expander(expander_title, expanded=False):
-						st.markdown(pattern.get("description", ""))
+				for pattern in display_patterns:
+					confidence = pattern.get("confidence", {})
+					confidence_level = str(confidence.get("level", "")).lower().replace(" ", "-")
+					if confidence_level not in {"very-high", "high", "medium", "low"}:
+						confidence_level = "low"
+					confidence_score = confidence.get("score", 0)
 
-						left_col, right_col = st.columns(2)
+					st.markdown(
+						f"""
+<div class="pattern-card pattern-card-{confidence_level}">
+	<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.8rem;">
+		<strong style="font-size:1.05rem; color:#1e293b;">{escape(str(pattern.get("title", "Untitled Pattern")))}</strong>
+		<span class="badge badge-{confidence_level}">{escape(str(confidence.get("level", "")))} · {escape(str(confidence_score))}</span>
+	</div>
+	<p style="color:#475569; font-size:0.9rem; margin-bottom:1rem;">{escape(str(pattern.get("description", "")))}</p>
+	<div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1rem;">
+		<div>
+			<div style="font-size:0.7rem; color:#94a3b8; text-transform:uppercase; font-weight:600;">Cause</div>
+			<div style="color:#1e293b; font-size:0.9rem;">{escape(str(pattern.get("cause", "")))}</div>
+		</div>
+		<div>
+			<div style="font-size:0.7rem; color:#94a3b8; text-transform:uppercase; font-weight:600;">Effect</div>
+			<div style="color:#1e293b; font-size:0.9rem;">{escape(str(pattern.get("effect", "")))}</div>
+		</div>
+		<div>
+			<div style="font-size:0.7rem; color:#94a3b8; text-transform:uppercase; font-weight:600;">Temporal Gap</div>
+			<div style="color:#1e293b; font-size:0.9rem;">{escape(str(pattern.get("temporal_gap", "—")))}</div>
+		</div>
+		<div>
+			<div style="font-size:0.7rem; color:#94a3b8; text-transform:uppercase; font-weight:600;">Evidence Strength</div>
+			<div style="color:#1e293b; font-size:0.9rem;">{escape(str(pattern.get("evidence_strength", "—")))} sessions</div>
+		</div>
+	</div>
+	<div style="font-size:0.75rem; color:#6366f1; font-style:italic; border-top:1px solid #f1f5f9; padding-top:0.8rem;">
+		💡 {escape(str(confidence.get("justification", "No confidence justification provided.")))}
+	</div>
+</div>
+""",
+						unsafe_allow_html=True,
+					)
 
-						with left_col:
-							st.markdown(f"**Cause:** {pattern.get('cause', '')}")
-							st.markdown(f"**Effect:** {pattern.get('effect', '')}")
+					with st.expander("🔬 Temporal Reasoning & Evidence"):
+						st.markdown("**Temporal Reasoning:**")
+						st.write(pattern.get("temporal_reasoning", ""))
+
+						evidence_items = pattern.get("evidence", [])
+						for item in evidence_items:
 							st.markdown(
-								f"**Temporal Gap:** {pattern.get('temporal_gap', 'not specified')}"
+								f'<div class="evidence-item">📍 {escape(str(item))}</div>',
+								unsafe_allow_html=True,
 							)
+
+						if pattern.get("biological_mechanism"):
 							st.markdown(
-								"**Biological Mechanism:** "
-								f"{pattern.get('biological_mechanism', '')}"
+								f"**🧬 Biological Mechanism:** {pattern.get('biological_mechanism', '')}"
 							)
 
-						with right_col:
-							st.markdown("**Sessions Involved:**")
-							sessions = pattern.get("sessions_involved", [])
-							if sessions:
-								st.markdown("\n".join(f"- {session_id}" for session_id in sessions))
-							else:
-								st.markdown("- None")
-							st.markdown(
-								f"**Evidence Strength:** {pattern.get('evidence_strength', 0)}"
-							)
-
-						if confidence_level in {"very high", "high"}:
-							badge_color = "#1B8A3B"
-						elif confidence_level == "medium":
-							badge_color = "#B08800"
-						else:
-							badge_color = "#B42318"
-
-						st.markdown(
-							(
-								"<div style=\"display:inline-block;padding:6px 10px;"
-								f"border-radius:8px;background-color:{badge_color};"
-								"color:white;font-weight:600;\">"
-								f"Confidence: {str(confidence.get('level', '')).upper()} "
-								f"({confidence_score})"
-								"</div>"
-							),
-							unsafe_allow_html=True,
-						)
-						st.markdown(
-							f"*{confidence.get('justification', 'No confidence justification provided.')}*"
-						)
+						progressive_stages = pattern.get("progressive_stages", None)
+						if progressive_stages is not None:
+							st.markdown("**Progressive Stages:**")
+							for idx, stage in enumerate(progressive_stages, start=1):
+								st.markdown(f"{idx}. {stage}")
 
 				with st.expander("🔎 Reasoning Trace"):
 					st.write(final_report.get("reasoning_trace", ""))
@@ -305,4 +519,13 @@ if run_button:
 elif dataset_load_error:
 	st.error(dataset_load_error)
 
-st.markdown("---\n*Built for AskFirst AI Intern Assignment | Powered by GPT-4o*")
+st.markdown(
+	"""
+<div style="text-align:center; padding:2rem 0 1rem 0; color:#94a3b8; font-size:0.8rem;">
+	Built for <strong>AskFirst AI Intern Assignment</strong> · 
+	Powered by <strong>GPT-4o</strong> · 
+	Temporal reasoning across 27 health conversations
+</div>
+""",
+	unsafe_allow_html=True,
+)
