@@ -1,6 +1,7 @@
 """Core LLM-powered temporal pattern detection engine for AskFirst."""
 
 import json
+import re
 
 import openai
 
@@ -14,40 +15,54 @@ from core.loader import get_user_sessions
 
 
 PATTERN_DETECTION_SYSTEM_PROMPT = """
-You are Clary, an advanced health pattern analysis AI. Your job is to analyze a user's complete health conversation history and detect hidden patterns that the user themselves has not noticed.
+You are Clary, an expert medical reasoning AI specialized in detecting hidden 
+health patterns across multiple conversations over time.
 
-You reason across TIME, not just keywords. A symptom appearing 8 weeks after a lifestyle change is medically different from a symptom appearing before one. Direction of time matters.
+Your job is to read a user's FULL conversation history and find ALL repeated 
+health patterns — even subtle ones. You must reason about TIME, not just keywords.
 
-RULES:
-1. Only report patterns that are supported by at least 2 sessions of evidence. Do not speculate on single-session mentions.
-2. Always state the SPECIFIC session IDs and timestamps that form your evidence chain.
-3. Always reason about the temporal gap between cause and effect. State the gap explicitly.
-4. Distinguish between correlation and causation. If there is a plausible biological or behavioral mechanism, state it.
-5. Do not restate what Clary already told the user. Find what Clary MISSED or what emerged across multiple sessions.
-6. Output ONLY a valid JSON array. No preamble, no explanation outside the JSON.
+CRITICAL RULES:
+1. You MUST return at least 2-3 patterns if ANY repeated signals exist in the data.
+	 Do NOT return an empty array unless the history has only 1 session.
+2. A pattern needs at least 2 supporting sessions as evidence.
+3. You MUST explicitly calculate the time gap between cause and effect.
+4. Look for: repeated symptoms after lifestyle triggers, delayed reactions 
+	 (weeks after a change), symptoms that appear only in specific contexts 
+	 (deadlines, stress, diet changes).
+5. Do NOT be conservative. A medium-confidence pattern is still worth reporting.
+6. Never return [] for a user with 8+ sessions. There are always patterns.
 
-OUTPUT FORMAT — return a JSON array of pattern objects, each with exactly these fields:
+WHAT TO LOOK FOR (non-exhaustive):
+- Same symptom appearing multiple times across weeks/months
+- Lifestyle change followed by symptom weeks later (temporal delay)
+- Symptom that disappears when trigger is removed (confirmation)
+- Symptom that worsens when trigger increases (dose-response)
+- Multiple symptoms from one root cause (branching effect)
+
+OUTPUT FORMAT:
+Return ONLY a valid JSON array. No explanation outside the JSON. No markdown. 
+No code fences. Just the raw JSON array starting with [ and ending with ].
+
+Each object in the array must have EXACTLY these fields:
 [
   {
-	"pattern_id": "auto-generated string like P1, P2...",
-	"user_id": "the user's ID",
-	"user_name": "the user's name",
-	"title": "short title of the pattern",
-	"description": "2-3 sentence description of the pattern with temporal reasoning",
-	"sessions_involved": ["session_id_1", "session_id_2", ...],
-	"timestamps_involved": ["readable timestamp 1", "readable timestamp 2", ...],
-	"cause": "what appears to be causing this",
-	"effect": "what symptom or outcome results",
-	"temporal_gap": "how much time passes between cause and effect, if applicable",
-	"biological_mechanism": "brief explanation of WHY this connection is plausible medically or behaviorally",
-	"confidence": "very high | high | medium | low",
-	"confidence_score": 0.0 to 1.0 as a float,
-	"confidence_justification": "one sentence: why this confidence level, citing session evidence",
-	"evidence_strength": "how many independent sessions confirm this pattern as an integer"
+		"pattern_id": "P1",
+		"user_id": "USR001",
+		"user_name": "Arjun",
+		"title": "short descriptive title of the pattern",
+		"description": "2-3 sentences explaining the pattern with specific session references and dates",
+		"cause": "what triggers this pattern",
+		"effect": "what symptom or outcome results",
+		"temporal_gap": "how much time between cause and effect e.g. within hours, 6 weeks later, same day",
+		"biological_mechanism": "brief medical or behavioral reason why this connection makes sense",
+		"sessions_involved": ["USR001_S01", "USR001_S04"],
+		"timestamps_involved": ["Jan 05 2026", "Jan 28 2026"],
+		"evidence_strength": 3,
+		"confidence": "high",
+		"confidence_score": 0.88,
+		"confidence_justification": "One sentence: why this score, citing specific session evidence"
   }
 ]
-
-If no patterns are found, return an empty array [].
 """
 
 
@@ -82,26 +97,49 @@ def _build_parse_error_pattern(user: dict, raw_response: str) -> list[dict]:
 	]
 
 
-def _parse_patterns_response(user: dict, raw_response: str) -> list[dict]:
-	"""Parse model output JSON into a list of pattern dictionaries.
 
-	Args:
-		user: User dictionary used for fallback parse-error metadata.
-		raw_response: Raw model response text expected to be JSON array.
-
-	Returns:
-		Parsed list of pattern dictionaries, or a parse-error pattern list.
-	"""
+def safe_parse_json(raw: str, user: dict) -> list:
+	"""Try multiple strategies to extract valid JSON from LLM response."""
+	# Strategy 1: direct parse
 	try:
-		parsed = json.loads(raw_response)
-		if isinstance(parsed, list):
-			return parsed
-		return _build_parse_error_pattern(
-			user,
-			f"Expected JSON array but got {type(parsed).__name__}: {raw_response}",
-		)
-	except Exception:
-		return _build_parse_error_pattern(user, raw_response)
+		return json.loads(raw)
+	except json.JSONDecodeError:
+		pass
+
+	# Strategy 2: extract JSON array between first [ and last ]
+	try:
+		start = raw.index("[")
+		end = raw.rindex("]") + 1
+		return json.loads(raw[start:end])
+	except (ValueError, json.JSONDecodeError):
+		pass
+
+	# Strategy 3: strip markdown code fences if model added them
+	try:
+		cleaned = re.sub(r"```json|```", "", raw).strip()
+		return json.loads(cleaned)
+	except json.JSONDecodeError:
+		pass
+
+	# Strategy 4: return error pattern so app doesnt crash silently
+	print(f"PARSE FAILED for {user['name']}. Raw response was:\n{raw}")
+	return [{
+		"pattern_id": "PARSE_ERROR",
+		"user_id": user["user_id"],
+		"user_name": user["name"],
+		"title": "JSON Parse Error",
+		"description": f"LLM returned non-JSON response. Raw: {raw[:300]}",
+		"cause": "system error",
+		"effect": "no patterns extracted",
+		"temporal_gap": "N/A",
+		"biological_mechanism": "N/A",
+		"sessions_involved": [],
+		"timestamps_involved": [],
+		"evidence_strength": 0,
+		"confidence": "low",
+		"confidence_score": 0.0,
+		"confidence_justification": "Parse failed"
+	}]
 
 
 def detect_patterns_for_user(user: dict, api_key: str, stream: bool = True):
@@ -148,21 +186,33 @@ def detect_patterns_for_user(user: dict, api_key: str, stream: bool = True):
 	full_context = build_chunked_context(user)
 	sessions = get_user_sessions(user)
 	temporal_timeline = get_temporal_summary(sessions)
-	profile_header = build_user_profile_header(user)
+	_ = build_user_profile_header(user)
 
 	user_prompt = f"""
-Analyze the following user's complete health conversation history and detect ALL hidden patterns with temporal reasoning.
+You are analyzing the health conversation history of {user['name']} (ID: {user['user_id']}).
+Age: {user['age']}, Occupation: {user['occupation']}.
+Background: {user['onboarding_notes']}
 
+TEMPORAL TIMELINE (use this to reason about sequence and gaps):
 {temporal_timeline}
 
-FULL CONVERSATION HISTORY:
+FULL CONVERSATION HISTORY (all sessions in chronological order):
 {full_context}
 
-Remember: Output ONLY a valid JSON array of pattern objects. Do not write anything outside the JSON array.
-""".strip()
+TASK:
+1. Read ALL sessions carefully from start to end.
+2. Identify every repeated pattern — symptoms that recur, causes that keep appearing, 
+   lifestyle factors that consistently precede health events.
+3. For each pattern, state the exact sessions and dates involved.
+4. Calculate the time gap between cause and effect explicitly.
+5. Return your findings as a JSON array.
 
-	# Keep profile explicitly available in the prompt payload for robust grounding.
-	user_prompt = f"{profile_header}\n\n{user_prompt}"
+IMPORTANT: This user has {len(sessions)} sessions over 3 months. 
+There are definitely patterns here. Do not return an empty array.
+Return ALL patterns you find, even medium confidence ones.
+
+Return ONLY the JSON array. Nothing else.
+""".strip()
 
 	client = openai.OpenAI(api_key=resolved_api_key)
 
@@ -188,8 +238,13 @@ Remember: Output ONLY a valid JSON array of pattern objects. Do not write anythi
 						collected_parts.append(delta)
 						yield {"type": "chunk", "content": delta}
 
-				raw_response = "".join(collected_parts).strip()
-				parsed_list = _parse_patterns_response(user, raw_response)
+				raw_response_text = "".join(collected_parts).strip()
+				print("=" * 60)
+				print(f"RAW LLM RESPONSE FOR {user['name']}:")
+				print("=" * 60)
+				print(raw_response_text)
+				print("=" * 60)
+				parsed_list = safe_parse_json(raw_response_text, user)
 				yield {"type": "result", "patterns": parsed_list}
 			except Exception as exc:
 				print(f"Error: OpenAI streaming call failed for user {user.get('name', 'unknown')}: {exc}")
@@ -212,8 +267,13 @@ Remember: Output ONLY a valid JSON array of pattern objects. Do not write anythi
 			temperature=config.TEMPERATURE,
 			stream=False,
 		)
-		raw_response = (response.choices[0].message.content or "").strip()
-		return _parse_patterns_response(user, raw_response)
+		raw_response_text = (response.choices[0].message.content or "").strip()
+		print("=" * 60)
+		print(f"RAW LLM RESPONSE FOR {user['name']}:")
+		print("=" * 60)
+		print(raw_response_text)
+		print("=" * 60)
+		return safe_parse_json(raw_response_text, user)
 	except Exception as exc:
 		print(f"Error: OpenAI call failed for user {user.get('name', 'unknown')}: {exc}")
 		return _build_parse_error_pattern(user, f"OpenAI call failed: {exc}")
