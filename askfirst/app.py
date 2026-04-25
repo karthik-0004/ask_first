@@ -540,6 +540,10 @@ st.markdown(
 	unsafe_allow_html=True,
 )
 
+# Per-user persistent chat memory initialization
+if "chat_histories" not in st.session_state:
+	st.session_state["chat_histories"] = {}  # keyed by user_name
+
 try:
 	# Load dataset for chat user selection
 	chat_dataset = load_dataset(DATA_PATH)
@@ -559,10 +563,11 @@ try:
 		with col2:
 			if st.button("🔄 New Conversation", key="chat_reset_button"):
 				st.session_state["clary_memory"] = None
-				st.session_state["clary_messages"] = []
+				if selected_chat_user in st.session_state.get("chat_histories", {}):
+					st.session_state["chat_histories"][selected_chat_user] = []
 				st.rerun()
 
-		# Initialize or load user memory
+		# Initialize or load user memory with persistent chat history
 		if "clary_memory" not in st.session_state or st.session_state.get("clary_chat_user") != selected_chat_user:
 			# Load user from dataset
 			selected_user_obj = None
@@ -573,15 +578,27 @@ try:
 
 			if selected_user_obj:
 				memory = load_user_from_dataset(chat_dataset, selected_chat_user)
+				
+				# Load persistent chat history for this user if it exists
+				if selected_chat_user in st.session_state["chat_histories"]:
+					for msg in st.session_state["chat_histories"][selected_chat_user]:
+						if msg["role"] == "user":
+							memory.add_user_message(msg["content"])
+						else:
+							memory.add_assistant_message(msg["content"])
+				
 				st.session_state["clary_memory"] = memory
 				st.session_state["clary_chat_user"] = selected_chat_user
-				st.session_state["clary_messages"] = []
 				st.session_state["clary_user_obj"] = selected_user_obj
-
-		# Get current memory
+		
+		# Get current memory and active chat
 		memory = st.session_state.get("clary_memory")
 		user_obj = st.session_state.get("clary_user_obj")
 		api_key = st.session_state.get("clary_api_key", os.getenv("OPENAI_API_KEY", ""))
+		current_chat_key = selected_chat_user
+
+		if current_chat_key not in st.session_state["chat_histories"]:
+			st.session_state["chat_histories"][current_chat_key] = []
 
 		if not api_key:
 			api_key = st.text_input(
@@ -596,8 +613,8 @@ try:
 			chat_container = st.container()
 
 			with chat_container:
-				# Show existing messages
-				for msg in memory.messages:
+				# Show messages from persistent history
+				for msg in st.session_state["chat_histories"][current_chat_key]:
 					role = msg.get("role", "user")
 					content = msg.get("content", "")
 
@@ -615,6 +632,12 @@ try:
 			if user_input:
 				# Display user message
 				st.chat_message("user").write(user_input)
+				
+				# Save to persistent chat history
+				st.session_state["chat_histories"][current_chat_key].append({
+					"role": "user",
+					"content": user_input
+				})
 
 				# Get Clary response
 				with st.spinner("Clary is thinking..."):
@@ -629,6 +652,13 @@ try:
 
 						# Display Clary response
 						st.chat_message("assistant", avatar="🩺").write(response_text)
+						
+						# Save to persistent chat history
+						st.session_state["chat_histories"][current_chat_key].append({
+							"role": "assistant",
+							"content": response_text
+						})
+						
 						st.rerun()
 
 					except Exception as e:
