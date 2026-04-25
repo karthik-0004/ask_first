@@ -17,6 +17,12 @@ from core.scorer import (
 	patterns_to_json_string,
 	validate_pattern,
 )
+from core.clary_chat import (
+	build_contextual_system_prompt,
+	get_clary_response,
+	load_user_from_dataset,
+	get_conversation_export,
+)
 from config import DATA_PATH, STREAM_ENABLED
 
 st.set_page_config(
@@ -519,12 +525,159 @@ if run_button:
 elif dataset_load_error:
 	st.error(dataset_load_error)
 
+# ═══════════════════════════════════════════════════════════════════════════════════════
+# 💬 CLARY CHAT SECTION
+# ═══════════════════════════════════════════════════════════════════════════════════════
+
+st.markdown("---")
+st.markdown(
+	"""
+<div style="text-align:center; padding:1rem 0;">
+	<h2 style="margin:0; font-size:1.5rem;">💬 Chat with Clary</h2>
+	<p style="color:#94a3b8; font-size:0.9rem; margin:0.5rem 0 0 0;">Personal health companion powered by temporal reasoning</p>
+</div>
+""",
+	unsafe_allow_html=True,
+)
+
+try:
+	# Load dataset for chat user selection
+	chat_dataset = load_dataset(DATA_PATH)
+	chat_users = get_all_users(chat_dataset)
+	chat_user_names = [u.get("name", "Unknown") for u in chat_users]
+
+	if chat_user_names:
+		col1, col2 = st.columns([2, 1])
+
+		with col1:
+			selected_chat_user = st.selectbox(
+				"Select a user to chat with",
+				chat_user_names,
+				key="chat_user_select",
+			)
+
+		with col2:
+			if st.button("🔄 New Conversation", key="chat_reset_button"):
+				st.session_state["clary_memory"] = None
+				st.session_state["clary_messages"] = []
+				st.rerun()
+
+		# Initialize or load user memory
+		if "clary_memory" not in st.session_state or st.session_state.get("clary_chat_user") != selected_chat_user:
+			# Load user from dataset
+			selected_user_obj = None
+			for u in chat_users:
+				if u.get("name") == selected_chat_user:
+					selected_user_obj = u
+					break
+
+			if selected_user_obj:
+				memory = load_user_from_dataset(chat_dataset, selected_chat_user)
+				st.session_state["clary_memory"] = memory
+				st.session_state["clary_chat_user"] = selected_chat_user
+				st.session_state["clary_messages"] = []
+				st.session_state["clary_user_obj"] = selected_user_obj
+
+		# Get current memory
+		memory = st.session_state.get("clary_memory")
+		user_obj = st.session_state.get("clary_user_obj")
+		api_key = st.session_state.get("clary_api_key", os.getenv("OPENAI_API_KEY", ""))
+
+		if not api_key:
+			api_key = st.text_input(
+				"Enter OpenAI API Key for chat",
+				type="password",
+				key="chat_api_key_input",
+			)
+			st.session_state["clary_api_key"] = api_key
+
+		if memory and user_obj and api_key:
+			# Display conversation history
+			chat_container = st.container()
+
+			with chat_container:
+				# Show existing messages
+				for msg in memory.messages:
+					role = msg.get("role", "user")
+					content = msg.get("content", "")
+
+					if role == "user":
+						st.chat_message("user").write(content)
+					else:
+						st.chat_message("assistant", avatar="🩺").write(content)
+
+			# User input
+			user_input = st.chat_input(
+				"Tell me about your health...",
+				key="clary_chat_input",
+			)
+
+			if user_input:
+				# Display user message
+				st.chat_message("user").write(user_input)
+
+				# Get Clary response
+				with st.spinner("Clary is thinking..."):
+					try:
+						response_text = get_clary_response(
+							memory=memory,
+							user_message=user_input,
+							api_key=api_key,
+							stream=False,
+							user_profile=user_obj,
+						)
+
+						# Display Clary response
+						st.chat_message("assistant", avatar="🩺").write(response_text)
+						st.rerun()
+
+					except Exception as e:
+						st.error(f"Error getting response: {e}")
+
+			# Sidebar options for chat
+			with st.sidebar:
+				st.markdown("---")
+				st.markdown("### 💬 Chat Options")
+
+				if st.button("📥 Export Conversation", key="export_chat"):
+					export_data = get_conversation_export(memory)
+					json_str = json.dumps(export_data, indent=2)
+					st.download_button(
+						label="Download as JSON",
+						data=json_str,
+						file_name=f"clary_conversation_{selected_chat_user}.json",
+						mime="application/json",
+					)
+
+				if st.button("🔍 Analyze Patterns in Chat", key="analyze_chat_patterns"):
+					from core.clary_chat import detect_patterns_from_conversation
+					patterns = detect_patterns_from_conversation(memory, api_key)
+					if patterns:
+						st.success(f"Found {len(patterns)} patterns in this conversation")
+						for pattern in patterns:
+							st.info(f"**{pattern.get('title', 'Pattern')}**: {pattern.get('description', '')}")
+					else:
+						st.info("No significant patterns detected in this conversation yet.")
+
+		else:
+			if not api_key:
+				st.warning("⚠️ Please provide your OpenAI API key to start chatting.")
+			else:
+				st.info("💬 Select a user above to start chatting with Clary.")
+
+	else:
+		st.info("No users available in the dataset. Add users to get started.")
+
+except Exception as e:
+	st.error(f"Error in chat section: {e}")
+
+st.markdown("---")
 st.markdown(
 	"""
 <div style="text-align:center; padding:2rem 0 1rem 0; color:#94a3b8; font-size:0.8rem;">
 	Built for <strong>AskFirst AI Intern Assignment</strong> · 
 	Powered by <strong>GPT-4o</strong> · 
-	Temporal reasoning across 27 health conversations
+	Temporal reasoning across health conversations
 </div>
 """,
 	unsafe_allow_html=True,
